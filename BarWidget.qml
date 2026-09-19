@@ -122,7 +122,13 @@ BarWidget {
     if (!root.forceDemo && (root.peakReady || (cliSample && cliSample.present === true && Spectra.hasLevelPath(root.rawPath))))
       root.lastLiveAt = now
     var sample = root.currentSample(now)
-    var next = Spectra.normalizeSample(sample)
+    var next = Spectra.mergeSample(root.snapshot, sample)
+    next.forceDemo = root.forceDemo
+    next.frozen = root.frozen
+    next.barCount = root.barCount
+    next.sensitivity = root.sensitivity
+    next.mediaTitle = root.detectedMedia.title
+    next.mediaArtist = root.detectedMedia.artist
     next = Spectra.applyAge(next, now)
     root.snapshot = next
     root.bars = Spectra.nextBars(root.bars, {
@@ -222,12 +228,16 @@ BarWidget {
         spacing: Math.max(1, Math.floor(width / (root.barCount * 6)))
 
         Repeater {
-          model: root.bars
+          model: root.barCount
 
           Rectangle {
             required property int index
-            required property var modelData
-            readonly property real level: Math.max(0, Math.min(1, Number(modelData || 0)))
+            readonly property real level: {
+              var values = root.bars
+              if (!values || index >= values.length)
+                return 0
+              return Math.max(0, Math.min(1, Number(values[index] || 0)))
+            }
             width: Math.max(2, (hBars.width - hBars.spacing * Math.max(0, root.barCount - 1)) / root.barCount)
             height: Math.max(2, parent.height * (0.12 + level * 0.88))
             anchors.bottom: parent.bottom
@@ -245,12 +255,16 @@ BarWidget {
         spacing: Math.max(1, Math.floor(height / (root.barCount * 6)))
 
         Repeater {
-          model: root.bars
+          model: root.barCount
 
           Rectangle {
             required property int index
-            required property var modelData
-            readonly property real level: Math.max(0, Math.min(1, Number(modelData || 0)))
+            readonly property real level: {
+              var values = root.bars
+              if (!values || index >= values.length)
+                return 0
+              return Math.max(0, Math.min(1, Number(values[index] || 0)))
+            }
             height: Math.max(2, (vBars.height - vBars.spacing * Math.max(0, root.barCount - 1)) / root.barCount)
             width: Math.max(2, parent.width * (0.12 + level * 0.88))
             anchors.left: parent.left
