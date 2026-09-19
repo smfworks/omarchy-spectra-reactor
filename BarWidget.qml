@@ -20,14 +20,21 @@ BarWidget {
   property var snapshot: Spectra.demoSnapshot()
   property var cliSample: null
   property real lastLiveAt: 0
+  property bool cliFresh: false
 
   readonly property bool peakReady: peakLoader.status === Loader.Ready
     && peakLoader.item
     && peakLoader.item.ready === true
-  readonly property real rawPeak: peakReady ? Number(peakLoader.item.peak || 0) : Number(cliSample && cliSample.peak || 0)
   readonly property bool rawMuted: peakReady
     ? peakLoader.item.muted === true
     : !!(cliSample && cliSample.muted === true)
+  readonly property real rawPeak: {
+    if (root.rawMuted)
+      return 0
+    if (peakReady)
+      return Number(peakLoader.item.peak || 0)
+    return Number(cliSample && cliSample.peak || 0)
+  }
   readonly property string rawPath: {
     if (root.forceDemo)
       return "demo"
@@ -41,7 +48,7 @@ BarWidget {
   readonly property string reactorLabel: Spectra.barLabel(root.snapshot)
   readonly property string reactorStatus: Spectra.statusLine(root.snapshot)
   readonly property real reactorGlow: Spectra.glowFromBars(root.bars)
-  readonly property bool chipLoud: reactorLabel === "LIVE" || reactorLabel === "DEMO"
+  readonly property bool chipLoud: reactorLabel === "LIVE"
 
   readonly property var mediaService: bar && bar.shell && bar.shell.firstPartyServiceFor
     ? bar.shell.firstPartyServiceFor("omarchy.media")
@@ -93,7 +100,9 @@ BarWidget {
       present = false
     } else if (root.peakReady) {
       present = true
-    } else if (cliSample && cliSample.present === true) {
+    } else if (cliSample && cliSample.present === true && Spectra.hasLevelPath(String(cliSample.path || ""))) {
+      present = true
+    } else if (cliSample && cliSample.present === true && cliSample.muted === true) {
       present = true
     } else if (cliSample && cliSample.error) {
       error = String(cliSample.error)
@@ -119,8 +128,12 @@ BarWidget {
 
   function tickReactor() {
     var now = Date.now()
-    if (!root.forceDemo && (root.peakReady || (cliSample && cliSample.present === true && Spectra.hasLevelPath(root.rawPath))))
+    if (!root.forceDemo && root.peakReady) {
       root.lastLiveAt = now
+    } else if (!root.forceDemo && root.cliFresh) {
+      root.lastLiveAt = now
+      root.cliFresh = false
+    }
     var sample = root.currentSample(now)
     var next = Spectra.mergeSample(root.snapshot, sample)
     next.forceDemo = root.forceDemo
@@ -148,7 +161,9 @@ BarWidget {
   }
 
   function applyProbe(text) {
-    root.cliSample = Spectra.parseProbe(text)
+    var parsed = Spectra.parseProbe(text)
+    root.cliSample = parsed
+    root.cliFresh = parsed.present === true && Spectra.hasLevelPath(parsed.path) && parsed.stale !== true
   }
 
   implicitWidth: button.implicitWidth
@@ -192,7 +207,7 @@ BarWidget {
       onStreamFinished: root.applyProbe(text)
     }
     onExited: function(code) {
-      if (code !== 0 && !root.cliSample)
+      if (code !== 0)
         root.applyProbe("")
     }
   }
