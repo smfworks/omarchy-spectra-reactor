@@ -16,7 +16,7 @@ Panel {
   readonly property var snapshot: host && host.snapshot ? host.snapshot : Spectra.demoSnapshot()
   readonly property string statusLine: host && host.reactorStatus ? host.reactorStatus : Spectra.statusLine(snapshot)
   readonly property string modeLabel: host && host.reactorLabel ? host.reactorLabel : Spectra.barLabel(snapshot)
-  readonly property string pathLine: snapshot.pathLabel || Spectra.pathLabel(snapshot.path)
+  readonly property string pathLine: Spectra.pathDisplay(snapshot)
   readonly property string mediaLine: Spectra.mediaLine(snapshot)
   readonly property real sensitivity: host ? Number(host.sensitivity) : Spectra.DEFAULT_SENSITIVITY
   readonly property bool forceDemo: host ? host.forceDemo === true : false
@@ -179,7 +179,7 @@ Panel {
               width: parent.width
               wrapMode: Text.WordWrap
               visible: root.mediaLine !== ""
-              text: "Media · " + root.mediaLine
+              text: "MPRIS (not the spectrum) · " + root.mediaLine
               color: root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

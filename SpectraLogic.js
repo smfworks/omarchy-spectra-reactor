@@ -2,7 +2,7 @@
 
 // Spectra Theme Reactor — honesty + envelope helpers.
 // Bars are peak-driven (or a labeled DEMO oscillator), never an invented FFT
-// and never a fabricated now-playing title.
+// and never a fabricated now-playing title. Volume is never treated as music.
 
 var BAR_MIN = 8
 var BAR_MAX = 32
@@ -56,9 +56,9 @@ function pathLabel(path) {
   if (key === "quickshell.peak")
     return "Quickshell PwNodePeakMonitor · default sink"
   if (key === "cli.pw-record")
-    return "pw-record RMS · monitor capture"
+    return "pw-record RMS · sink monitor"
   if (key === "cli.parec")
-    return "parec RMS · Pulse monitor"
+    return "parec RMS · sink monitor"
   if (key === "cli.cava")
     return "cava raw bars"
   if (key === "cli.wpctl")
@@ -76,6 +76,26 @@ function hasLevelPath(path) {
     || key === "cli.pw-record"
     || key === "cli.parec"
     || key === "cli.cava"
+}
+
+function isMuteOnlyPath(path) {
+  var key = String(path || "")
+  return key === "cli.wpctl" || key === "cli.pactl"
+}
+
+function isSilentPeak(peak) {
+  return clamp(number(peak), 0, 1) < SILENCE
+}
+
+function isSinkMonitorName(name) {
+  var n = String(name || "").trim().toLowerCase()
+  if (n === "")
+    return false
+  if (n === "@default_audio_source@" || n === "@default_source@" || n === "@default_audio_source")
+    return false
+  if (n.indexOf("input") !== -1 && n.indexOf("monitor") === -1)
+    return false
+  return n.indexOf(".monitor") !== -1 || n.slice(-8) === ".monitor"
 }
 
 function emptyState() {
@@ -112,21 +132,54 @@ function errorSnapshot(message, path) {
   return snap
 }
 
+function inventedMediaToken(value) {
+  var t = String(value || "").trim().toLowerCase()
+  if (t === "")
+    return true
+  return t === "unknown"
+    || t === "unknown artist"
+    || t === "untitled"
+    || t === "untitled track"
+    || t === "now playing"
+    || t === "no title"
+    || t === "not playing"
+}
+
+function sanitizeMediaField(value) {
+  var text = String(value || "").trim()
+  if (inventedMediaToken(text))
+    return ""
+  return text
+}
+
+function isMediaPlaying(player) {
+  if (!player || typeof player !== "object")
+    return false
+  if (player.isPlaying === true || player.playing === true)
+    return true
+  var status = String(player.playbackStatus || player.status || player.playState || "").trim().toLowerCase()
+  return status === "playing" || status === "play"
+}
+
 function detectMedia(player) {
   if (!player || typeof player !== "object")
-    return { title: "", artist: "" }
-  var title = String(player.trackTitle || player.title || "").trim()
-  var artist = String(player.trackArtist || player.artist || "").trim()
-  return { title: title, artist: artist }
+    return { title: "", artist: "", playing: false }
+  if (!isMediaPlaying(player))
+    return { title: "", artist: "", playing: false }
+  var title = sanitizeMediaField(player.trackTitle)
+  var artist = sanitizeMediaField(player.trackArtist)
+  if (title === "")
+    return { title: "", artist: "", playing: true }
+  return { title: title, artist: artist, playing: true }
 }
 
 function mediaLine(state) {
   if (!state)
     return ""
-  var title = String(state.mediaTitle || "").trim()
+  var title = sanitizeMediaField(state.mediaTitle)
   if (title === "")
     return ""
-  var artist = String(state.mediaArtist || "").trim()
+  var artist = sanitizeMediaField(state.mediaArtist)
   return artist !== "" ? title + " · " + artist : title
 }
 
@@ -136,24 +189,26 @@ function normalizeSample(raw) {
     return errorSnapshot("invalid snapshot")
   snap.error = raw.error ? String(raw.error) : ""
   snap.path = raw.path ? String(raw.path) : (raw.present === true ? "quickshell.peak" : "demo")
-  snap.pathLabel = raw.pathLabel ? String(raw.pathLabel) : pathLabel(snap.path)
+  snap.pathLabel = pathLabel(snap.path)
   snap.muted = raw.muted === true
   snap.forceDemo = raw.forceDemo === true
   snap.frozen = raw.frozen === true
   snap.stale = raw.stale === true
-  snap.peak = clamp(number(raw.peak), 0, 1)
-  snap.rms = clamp(number(raw.rms != null ? raw.rms : raw.peak), 0, 1)
+  snap.peak = hasLevelPath(snap.path) ? clamp(number(raw.peak), 0, 1) : 0
+  snap.rms = hasLevelPath(snap.path)
+    ? clamp(number(raw.rms != null ? raw.rms : raw.peak), 0, 1)
+    : 0
   snap.updatedAt = number(raw.updatedAt)
-  var media = detectMedia({
-    trackTitle: raw.mediaTitle,
-    trackArtist: raw.mediaArtist
-  })
-  snap.mediaTitle = media.title
-  snap.mediaArtist = media.artist
+  snap.mediaTitle = sanitizeMediaField(raw.mediaTitle)
+  snap.mediaArtist = sanitizeMediaField(raw.mediaArtist)
   snap.barCount = clampBarCount(raw.barCount)
   snap.sensitivity = raw.sensitivity === undefined || raw.sensitivity === null
     ? DEFAULT_SENSITIVITY
     : clampSensitivity(raw.sensitivity)
+  if (snap.muted === true) {
+    snap.peak = 0
+    snap.rms = 0
+  }
   if (snap.error && raw.present !== true) {
     snap.present = false
     snap.demo = false
@@ -195,18 +250,22 @@ function markStale(state, message) {
   var next = normalizeSample(state)
   next.stale = true
   next.error = message || next.error || "levels went stale"
+  next.peak = 0
+  next.rms = 0
   return next
 }
 
 function mergeSample(current, incoming) {
   var next = typeof incoming === "string" ? parseProbe(incoming) : normalizeSample(incoming)
   var live = current && current.present === true && current.stale !== true && hasLevelPath(current.path)
-  if (next && next.present === true)
+  if (next && next.forceDemo === true)
     return next
-  if (next && next.demo === true && !next.error)
+  if (next && next.present === true)
     return next
   if (live)
     return markStale(current, next && next.error ? next.error : "levels went stale")
+  if (next && next.demo === true && !next.error)
+    return next
   if (current && current.stale === true && current.present === true)
     return current
   if (current && current.error && current.present !== true)
@@ -236,11 +295,11 @@ function barMode(state) {
     return "demo"
   if (state.forceDemo === true)
     return "demo"
+  if (state.error && state.present !== true && state.stale !== true)
+    return "err"
   if (state.stale === true)
     return "stale"
-  if (state.error && state.present !== true)
-    return "err"
-  if (state.muted === true && state.present === true)
+  if (state.muted === true && (state.present === true || isMuteOnlyPath(state.path)))
     return "muted"
   if (state.present === true && hasLevelPath(state.path) && state.demo !== true)
     return "live"
@@ -262,11 +321,25 @@ function barLabel(state) {
   return "DEMO"
 }
 
+function pathDisplay(state) {
+  if (!state)
+    return pathLabel("demo")
+  var mode = barMode(state)
+  if (mode === "err")
+    return state.error || pathLabel("err")
+  if (mode === "demo" && state.forceDemo === true)
+    return pathLabel("demo")
+  var label = pathLabel(state.path)
+  if (mode === "stale")
+    return "last " + label
+  return label
+}
+
 function statusLine(state) {
   if (!state)
     return "DEMO · DEMO oscillator · not live music"
   var mode = barMode(state)
-  var path = state.pathLabel || pathLabel(state.path)
+  var path = pathDisplay(state)
   if (mode === "demo") {
     if (state.forceDemo === true)
       return "DEMO forced · oscillator · not live music"
@@ -275,13 +348,12 @@ function statusLine(state) {
   if (mode === "err")
     return "ERR · " + (state.error || "probe failed")
   if (mode === "stale")
-    return "STALE · last " + path
+    return "STALE · " + path + " · not live levels"
   if (mode === "muted")
-    return "MUTED · " + path
-  var media = mediaLine(state)
-  if (media !== "")
-    return "LIVE · " + path + " · " + media
-  return "LIVE · " + path
+    return "MUTED · " + pathLabel(state.path)
+  if (isSilentPeak(state.peak))
+    return "LIVE · " + pathLabel(state.path) + " · silent"
+  return "LIVE · " + pathLabel(state.path)
 }
 
 function bandWeight(index, count) {
@@ -347,18 +419,18 @@ function nextBars(prev, opts) {
   var target
   if (mode === "demo") {
     target = demoTargets(t, count, sens)
-  } else if (mode === "muted" || mode === "err") {
+  } else if (mode === "muted" || mode === "err" || mode === "stale") {
     target = emptyBars(count)
   } else {
     var peak = clamp(number(opts.peak) * sens, 0, 1)
-    if (peak < SILENCE)
+    if (isSilentPeak(peak))
       target = emptyBars(count)
     else
       target = peakTargets(peak, count, t)
   }
   var attack = mode === "demo" ? 0.32 : 0.48
   var decay = mode === "demo" ? 0.16 : 0.2
-  if (mode === "muted" || mode === "err")
+  if (mode === "muted" || mode === "err" || mode === "stale")
     decay = 0.42
   return applyEnvelope(prevBars, target, attack, decay)
 }
@@ -374,5 +446,5 @@ function glowFromBars(bars) {
 }
 
 function aboutText() {
-  return "Spectra Theme Reactor paints a neon strip from real sink peaks when Quickshell's PwNodePeakMonitor (same family as omarchy.audio) or a CLI RMS capture is available. Otherwise it runs a labeled DEMO oscillator — never a fake live mix. Track names appear only from omarchy.media / MPRIS when a player actually publishes them."
+  return "Spectra Theme Reactor paints a neon strip from real sink peaks when Quickshell's PwNodePeakMonitor (same family as omarchy.audio) or a CLI RMS capture of the sink monitor is available. Volume is never treated as music. Otherwise it runs a labeled DEMO oscillator — never a fake live mix. MUTED is a user mute; LIVE silent is an unmuted quiet sink. Track names appear only from omarchy.media / MPRIS while a player is Playing, and they are not the spectrum source. See docs/OPPOSITION.md."
 }
