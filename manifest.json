@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "smf.spectra-reactor",
+  "name": "Spectra Theme Reactor",
+  "version": "0.1.0",
+  "author": "SMF Works",
+  "license": "MIT",
+  "description": "Audio-reactive sci-fi chrome for the Omarchy bar: a neon spectrum strip driven by PipeWire peaks when they exist, and a clearly labeled DEMO oscillator when they do not.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Spectra Theme Reactor",
+    "description": "Neon spectrum strip with a nested sensitivity / DEMO panel.",
+    "category": "Audio",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
