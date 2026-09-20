@@ -17,6 +17,12 @@ Sibling plugins: [Neural Pulse](https://github.com/smfworks/omarchy-neural-pulse
 [Orbit Dock](https://github.com/smfworks/omarchy-orbit-dock),
 [Ghost Trace](https://github.com/smfworks/omarchy-ghost-trace).
 
+## Demo
+
+Spectra Theme Reactor on Omarchy (mikesai6) — audio-reactive neon strip + reactor panel.
+
+https://github.com/smfworks/omarchy-spectra-reactor/releases/download/demo/demo.mp4
+
 ## Requirements
 
 - Omarchy Quattro / Quickshell (this is a `bar-widget` plugin)
